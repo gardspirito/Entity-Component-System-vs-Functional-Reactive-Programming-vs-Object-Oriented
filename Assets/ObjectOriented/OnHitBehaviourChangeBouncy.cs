@@ -8,7 +8,7 @@ public class OnHitBehaviourChangeBouncy : OnHitBehaviourChange
     public PhysicMaterial physmat;
     public Vector3 startforse;
 
-    public override void CollisionAction()
+    public override void CollisionAction() // If not yet activated, on hit change restitution
     {
         if (!m_Bouncy)
         {

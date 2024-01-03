@@ -8,7 +8,7 @@ public class OnHitBehaviourChangeColour : OnHitBehaviourChange
     public Material newmat;
     public int hits = 0;
 
-    public override void CollisionAction()
+    public override void CollisionAction() // On each even hit set color to white, on odd - to red.
     {
         hits++;
 

@@ -4,7 +4,7 @@ using UnityEngine;
 
 public class OnHitBehaviourChangeMass : OnHitBehaviourChange
 {
-    public override void CollisionAction()
+    public override void CollisionAction() // On hit change mass
     {
         Rigidbody thisrg = GetComponent<Rigidbody>();
         thisrg.mass *= 2;

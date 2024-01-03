@@ -10,6 +10,6 @@ public class OnHitBehaviourChangeSpeed: OnHitBehaviourChange
         grav.x *= 1.1f;
         grav.y *= 1.1f;
         grav.z *= 1.1f;
-        Physics.gravity = grav;
+        Physics.gravity = grav; // Override global physics gravity on each hit.
     }
 }
