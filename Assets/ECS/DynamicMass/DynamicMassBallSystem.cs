@@ -14,8 +14,8 @@ public partial struct DynamicMassBallSystem : ISystem {
 	
 	private partial struct DynamicMassJob : IJobEntity {
 		public void Execute(in DynamicMassBallComponent _, ref DynamicBuffer<CollisionsComponent> collisionsBuffer, RigidBodyAspect aspect) {
-			if (CollisionsSystem.HasNewCollisions(ref collisionsBuffer)) {
-				aspect.Mass *= 2f;
+			if (CollisionsSystem.HasNewCollisions(ref collisionsBuffer)) { // On collision
+				aspect.Mass *= 2f; // change mass
 			}
 		}
 	}

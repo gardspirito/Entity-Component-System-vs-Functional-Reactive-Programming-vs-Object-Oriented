@@ -15,8 +15,8 @@ public partial struct BouncyBallSystem : ISystem {
 	
 	private partial struct BouncyBallJob : IJobEntity {
 		public void Execute(ref DynamicBuffer<CollisionsComponent> collisionsBuffer, ref BouncyBallComponent bouncyBall, ColliderAspect collider) {
-			if (!bouncyBall.toggled && CollisionsSystem.HasNewCollisions(ref collisionsBuffer)) {
-				bouncyBall.toggled = true;
+			if (!bouncyBall.toggled && CollisionsSystem.HasNewCollisions(ref collisionsBuffer)) { // Detect new collisions if not toggled.
+				bouncyBall.toggled = true; // Set flag "toggled" to true and increase restitution.
 				collider.SetRestitution(0.9f);
 				collider.Position += new float3(0f, 5f, 0f);
 			}

@@ -161,6 +161,11 @@ module FRP =
 module Sim =
   open FRP
 
+  // stepIntegral is a utility MSF that accepts dt and f(t+dt) as input and outputs an ∫f(t)dt from t to t+dt
+  // assuming the transition from f(t) to f(t+dt) was linear.
+  // This is a useful approximation to calculate update position of the object:
+  // given object velocity on previous and current steps and dt, it is
+  // possible to approximate distance traversed.
   let stepIntegral unit : MSFRL<'r, float32 * Vector3, Vector3>
     = mealy (fun (dt, newVal) oldVal -> 
         ((match oldVal with
@@ -169,31 +174,36 @@ module Sim =
         )*dt, Some newVal)
       ) None
 
+  // Overridable environmental variables passed to all spheres.
   type Env = { mass : float32; bounciness : float32; dt : float32; gravity: float32 }
+
+  // Result of computation
   type Obj = { index : int; impulse : Vector3; position : Vector3; toggled : bool }
 
+  // Utility MSF. Accepts list of all collisions and returns true if given sphere collided with something.
   let detectHit (index : int) : MSFRL<'r, Map<int, Set<int>*Vector3>, bool>
     = mealy (fun collisions oldColl ->
         let newColl = Option.defaultValue Set.empty (Option.map fst <| Map.tryFind index collisions)
         (Set.count (Set.difference newColl oldColl) > 0, newColl))
         Set.empty
 
-  // MOVE 
+  // Base implementation of a sphere that carries no logic on collision.
   let simpleBall (index : int) (startPos : Vector3) : MSFRL<Env, Map<int, Set<int>*Vector3>, Obj*(Env -> Env)>
-    = extend (ask ())
-    >.> extend (accumulateWith (fun (collisions, env) i -> 
+    = extend (ask ()) // Get environmental variables
+    >.> extend (accumulateWith (fun (collisions, env) i -> // v Calculate new impulse based on gravity and collisions with other objects
         i
         |> ((+) (Vector3 (0f, -env.mass*env.gravity*env.dt, 0f)))
         |> Option.foldBack (fun (_, dimp) imp -> imp + dimp*(1f+env.bounciness)) (Map.tryFind index collisions)
       ) Vector3.zero)
-    >.> arr (fun ((_, env), impulse) -> (env, impulse)) //env
-    >.> extend (
+    >.> arr (fun ((_, env), impulse) -> (env, impulse))
+    >.> extend ( // v Calculate new position
       arr (fun (env, impulse) -> (env.dt, impulse/env.mass)) // dt, velocity
       >.> stepIntegral () // position delta
       >.> accumulateWith (fun dpos pos -> pos + dpos) startPos) // (dt, impulse), position
-    >.> arr (fun ((_, impulse), position) -> { index = index; impulse = impulse; position = position; toggled = false })
+    >.> arr (fun ((_, impulse), position) -> { index = index; impulse = impulse; position = position; toggled = false }) // output
     >.> arr (fun res -> (res, id))
 
+  // An extension to simpleBall. Executes simpleBall, on collision creates a ListT fork that executes simpleBall.
   let duplicatorBall (index : int) (startPos : Vector3) (usedIndices : int): MSFRL<Env, Map<int, Set<int>*Vector3>, Obj*(Env -> Env)>
     = spawner (
         (simpleBall index startPos .|. detectHit index)
@@ -204,10 +214,12 @@ module Sim =
         ) usedIndices
       )
 
+  // An extension to simpleBall. Stores mass and increases it on each hit. Uses ReaderT to execute simpleBall in updated context.
   let dynamicMassBall (index : int) (startPos : Vector3) : MSFRL<Env, Map<int, Set<int>*Vector3>, Obj*(Env -> Env)>
-    = extend (detectHit index >.> accumulateWith (fun hit massFactor -> if hit then 1.1f*massFactor else massFactor) 1.0f)
+    = extend (detectHit index >.> accumulateWith (fun hit massFactor -> if hit then 2f*massFactor else massFactor) 1.0f)
     >.> hoist (fun massFactor comp -> ListT.Local (comp, fun env -> { env with mass = env.mass*massFactor })) (simpleBall index startPos)
 
+  // An extension to simpleBall. Behaves like simpleBall, on hit switches to bounciness = 0.9f and executes simpleBall in updated context.
   let bouncyBall (index : int) (startPos : Vector3) : MSFRL<Env, Map<int, Set<int>*Vector3>, Obj*(Env -> Env)>
     = extend (switcher (
       detectHit index
@@ -217,17 +229,26 @@ module Sim =
           else Choice1Of2 id)))
     >.> hoist (fun updater comp -> ListT.Local (comp, updater)) (simpleBall index startPos)
 
+  // An extension to simpleBall. Stores gravity factor, updates it on each hit and extends output of simpleBall with update function that will
+  // be applied to global context on the next step.
   let gravityChangerBall (index : int) (startPos : Vector3) : MSFRL<Env, Map<int, Set<int>*Vector3>, Obj*(Env -> Env)>
     = (simpleBall index startPos .|. (detectHit index >.> accumulateWith (fun hit gravityFactor -> if hit then 0.9f*gravityFactor else gravityFactor) 1.0f))
     >.> arr (fun ((ball, f), gravityFactor) -> (ball, fun env -> f <| { env with gravity = env.gravity * gravityFactor }))
 
+  // An extension to simpleBall. Extends output object with "toggled" flag that switches each time the sphere collides with something.
+  // This flag is later used to determine color of the sphere.
   let dynamicColorBall (index : int) (startPos : Vector3) : MSFRL<Env, Map<int, Set<int>*Vector3>, Obj*(Env -> Env)>
     = (simpleBall index startPos .|. (detectHit index >.> accumulateWith (fun hit toggled -> if hit then not toggled else toggled) false))
     >.> arr (fun ((ball, f), toggled) -> ({ ball with toggled = toggled }, f))
 
+  // Impulse applied to colliding objects to separate them.
   let unstuckImpulse = 0.08f
+  // Sphere radius
   let radius = 0.5f
 
+  // Collision detection system. Accepts data about immovable barriers (such as floor, walls), a list of objects, and
+  // returns list of collisions with force that needs to be appliedto respective objects.
+  // This computation is not precise and not efficient, but could be improved without changing type.
   type WallData = { root : Vector3; normal: Vector3 }
   let collisions (walls : list<Vector3 * Vector3 * Vector3>) : MSF<list<Obj>, Map<int, Set<int>*Vector3>>
     = let walls : list<int * WallData>
@@ -250,6 +271,8 @@ module Sim =
           (contacted, newImpulse - origObj.impulse)
       arrI (fun objs -> Map.ofList [ for obj in objs -> (obj.index, stopImpulse objs obj) ])
 
+  // An actualy simulation. On each step, initializes ReaderT and ListT and runs all spheres in the simulation.
+  // Collisions and updates to global environmet are passed onto subsequent simulation steps via feedbackI method.
   let simulation (pos : Vector3[]) (walls : list<Vector3 * Vector3 * Vector3>) : MSF<float32, list<Obj>>
     = feedbackI (Map.empty, []) (
         arrI (fun (x, (collisions, envUpds)) -> 
@@ -281,17 +304,21 @@ type SimpleScript() =
   member val walls : Vector3[] = [||] with get, set
 
   member self.Start() =
+    // Initates the simulation from Sim.simulation function and initial Unity Engine scene.
     sim <- Sim.simulation
       [|for ball in self.balls -> ball.transform.position|]
       [for i in 0..((Array.length self.walls)/3 - 1) -> self.walls[3*i], self.walls[3*i+1], self.walls[3*i+2]]
     
   member self.Update() =
+    // Runs the simulation
     let (FRP.MSF step) = sim
     let (objs, next) = step Time.deltaTime
     for obj in objs do
+      // Reads result of the simulation and performs required update to objects on screen via Unity Engine.
       if obj.index >= Array.length self.balls
         then self.balls <- Array.append self.balls [|GameObject.CreatePrimitive (PrimitiveType.Sphere)|]
       self.balls[obj.index].transform.position <- obj.position
       self.balls[obj.index].GetComponent<Renderer>().material.color <- if obj.toggled then Color.red else Color.white
+    // Executing MSF computation yields new MSF computation to execute on following steps. We save for use in later iterations.
     sim <- next
 

@@ -7,27 +7,13 @@ using Unity.Physics.Systems;
 using UnityEngine;
 using Unity.Collections.LowLevel.Unsafe;
 
-/*
-public partial class GravityChangerBallSystem : SystemBase
-{	
-    protected override void OnUpdate() {
-		ref var physicsStep = ref SystemAPI.GetSingletonRW<PhysicsStep>().ValueRW;
-    	Entities.ForEach((GravityChangerBallComponent _, ref DynamicBuffer<CollisionsComponent> collisions) => {
-			if (CollisionsSystem.HasNewCollisions(ref collisions)) {
-				physicsStep.Gravity = 0.9f * physicsStep.Gravity;
-				Debug.Log(physicsStep.Gravity);
-			}
-		}).Schedule();
-    }
-}*/
-
 public partial struct GravityChangerBallSystem : ISystem {
 	public void OnCreate(ref SystemState state) {
     	state.RequireForUpdate<PhysicsStep>();
     }
     
     public void OnUpdate(ref SystemState state) {
-		Debug.Log("OnUpdate");
+		// Schedule synchronous job with access to PhysicsStep singleton which controls global physics environmental variables.
     	new GravityChangerJob() { physicsStep = SystemAPI.GetSingletonRW<PhysicsStep>() }.Schedule();
     }
     
@@ -35,8 +21,8 @@ public partial struct GravityChangerBallSystem : ISystem {
     	[NativeDisableUnsafePtrRestriction] public RefRW<PhysicsStep> physicsStep;
     	
     	public void Execute(in GravityChangerBallComponent _, ref DynamicBuffer<CollisionsComponent> collisions) {
-			if (CollisionsSystem.HasNewCollisions(ref collisions)) {
-    			physicsStep.ValueRW.Gravity *= 1.1f;
+			if (CollisionsSystem.HasNewCollisions(ref collisions)) { // On collision
+    			physicsStep.ValueRW.Gravity *= 1.1f; // Increase global gravit
     		}
     	}
     }
